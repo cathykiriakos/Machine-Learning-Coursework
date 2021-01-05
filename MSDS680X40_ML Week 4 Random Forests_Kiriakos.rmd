@@ -1,0 +1,253 @@
+---
+title: "Kiriakos_MSDS680X40_ML_RandomForests"
+author: "Cathy Kiriakos"
+date: "May 26, 2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## MSDS 680 X40 Machine Learning: Week 4 Random Forest Using UCI Machine Learning Wine Quality Data:
+
+The objective of this analysis is to predict wine quality ranking from the its chemical properties. This will provide guidance to vineyards regarding quality of wine and price expected without heavy reliance on the tasters.  We will accomplish this by leveraging the random forest algorithm, which improves upon our standard decision tree, where for each split that it makes a subset of features will make the split versus the full set that your decision tree will make; which is typically the square root of the number of predictors, building multiple trees using that same process and finally taking the average of all the trees for the final model. This reduces the variance on the final tree [1]. 
+
+## Exploratory Data Analysis on UCI Machine Learning Wine Data 
+
+We will first start by learning a bit about the data set and loading it into R. 
+
+Data Set Information from https://archive.ics.uci.edu/ml/datasets/wine+quality:
+
+The two datasets are related to red and white variants of the Portuguese "Vinho Verde" wine. For more details, consult: [Cortez et al., 2009]. Due to privacy and logistic issues, only physicochemical (inputs) and sensory (the output) variables are available (e.g. there is no data about grape types, wine brand, wine selling price, etc.).
+
+These datasets can be viewed as classification or regression tasks. The classes are ordered and not balanced (e.g. there are many more normal wines than excellent or poor ones). Outlier detection algorithms could be used to detect the few excellent or poor wines. Also, we are not sure if all input variables are relevant. So it could be interesting to test feature selection methods.
+
+Attribute Information:
+
+Input variables (based on physicochemical tests):
+1 - fixed acidity
+2 - volatile acidity
+3 - citric acid
+4 - residual sugar
+5 - chlorides
+6 - free sulfur dioxide
+7 - total sulfur dioxide
+8 - density
+9 - pH
+10 - sulphates
+11 - alcohol
+Output variable (based on sensory data):
+12 - quality (score between 0 and 10)
+
+Now that we have the details we will load it into R: 
+```{r,loadData}
+url <- 'https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv'
+wine <- read.table(url, sep = ';', header = TRUE)
+head(wine)
+```
+A quick look at column names 
+```{r,names}
+names(wine)
+```
+Now we can quickly search for any na values: 
+```{r,na}
+sum(is.na(wine))
+```
+Ok looks good, no na's, lets look at the structure: 
+```{r,str}
+str(wine)
+```
+Now we can get a quick view of a histogram of the Wine Quality: 
+```{r,histogram}
+hist(wine$quality)
+```
+We can see that a lot of wines are rated at a 6. We can break out our data into wines that are good, bad, and normal based on their quality being greater than or equal to six. 
+```{r, wineTastClass}
+wine$taste <- ifelse(wine$quality < 6,"bad","good")
+wine$taste[wine$quality == 6] <- "normal"
+wine$taste <- as.factor(wine$taste)
+```
+Now we can get a look at the data once more: 
+```{r,secLook}
+table(wine$taste)
+```
+## 1) Train, predict, and evaluate the wine quality using decision trees.
+We will start out by creating testing and training sets, doing a 60/40 split for training and testing respectively: 
+```{r,test.Train}
+set.seed(123)
+smp <- sample(nrow(wine), 0.6 * nrow(wine))
+train <- wine[smp,]
+test <- wine[-smp,]
+```
+Now we can start building out our model; we will use the randomForest package in R:
+```{r,model}
+library(randomForest)
+model <- randomForest(taste ~ . - quality, data = train)
+```
+We will use the ntree, and mtry functions to specify the number of trees we will build out, as it defaults to 500.  Now we can take a look at the model:
+```{r,viewMod}
+model
+```
+From the output above we can see that 500 trees were built, and three predictor variables were randomly sampled for each split. Our error rate is ~30% It also nicely provides a confusion matrix showing prediction versus actual, and classification error on each class. Not awesome, but not terrible.
+
+Now we can apply the model to our testing and training sets: 
+```{r,predModel}
+pred <- predict(model, newdata = test)
+table(pred, test$taste)
+```
+Now we can check our accuracy
+```{r,accuracy}
+(462+247+670)/nrow(test)
+```
+```{r}
+plot(randomForest(taste ~ . - quality, data = train))
+```
+
+So we've got 70% accuracy on our first round. The downfall of the randomForest package, is it doesn't offer the nice tree plot that rpart does. So we will re-run our model using rpart, and then get a plot of the trees.  First we will call the libraries, and then re-run the model.
+```{r,treePlot}
+library(rpart)
+library(rpart.plot)
+```
+Lets run our random forest via rpart now:
+```{r,rprf}
+model1 <- rpart(formula = 
+                  quality ~ fixed.acidity +
+                  volatile.acidity +
+                  citric.acid +
+                  residual.sugar+
+                  chlorides +
+                  free.sulfur.dioxide +
+                  total.sulfur.dioxide +
+                  density +
+                  pH +
+                  sulphates +
+                  alcohol,
+                data = train, method = "class")
+```
+For good measure lets view the model 
+```{r,md1}
+model1
+```
+Lets get a plot of our trees below, we can see that the accuracy 
+```{r,fancyTree}
+library(rattle)
+library(RColorBrewer)
+fancyRpartPlot(model1, sub = "Wine Quality Tree")
+```
+
+Now we can get a view of our cross validation results:
+```{r,cp}
+plotcp(model1)
+```
+```{r,rsplot}
+rsq.rpart(model1)
+```
+The above plot is showing the approximate r-squared relative error for different splits 
+## Testing the Model: 
+```{r,test}
+wineTest <- predict(model1,test, type = "class")
+```
+Now we can evaluate our performance by using the call below that will return the percent of correct predictions: 
+```{r,perfEvalfn}
+get.accuracy <- function(prediction, real) {
+  accuracy <- prediction == real
+  return (length(accuracy[accuracy == TRUE])/length(accuracy))
+}
+```
+```{r,perfEval}
+get.accuracy(wineTest, test$quality)
+```
+So 53% accuracy is not the best.  We can prune our tree to see if we can get better results on our model. 
+
+Lets get a look at our cross table results: 
+```{r,crosstbl}
+library(descr)
+CrossTable(wineTest,test$quality, prop.chisq = FALSE, prop.t = FALSE, dnn = c("predicted", "actual"))
+```
+## Prune the trees:  
+First I wanted to get a n understanding of the complexity parameters on our original model so we're going to run some analysis to get an understanding before we prune our tree. We will want to choose the CP with the lowest error, which is 3
+```{r,cpView}
+printcp(model1)
+```
+Below is another method of viewing our CP
+```{r,viewmore}
+plotcp(model1)
+```
+Now we will set the CP parameter to 0.1 in our next model: 
+```{r,mod2}
+model2 <- rpart(formula = 
+                  quality ~ fixed.acidity +
+                  volatile.acidity +
+                  citric.acid +
+                  residual.sugar+
+                  chlorides +
+                  free.sulfur.dioxide +
+                  total.sulfur.dioxide +
+                  density +
+                  pH +
+                  sulphates +
+                  alcohol,
+                data = train, method = "class", 
+                cp = 0.01
+               )
+```
+
+```{r,plot2}
+fancyRpartPlot(model2, sub = "Wine Quality Tree")
+```
+
+Now we can get a view of our cross validation results:
+```{r,cp2}
+plotcp(model2)
+```
+```{r,rsplot2}
+rsq.rpart(model2)
+```
+Lets test our pruned model: 
+```{r,test2}
+wineTest2 <- predict(model2,test, type = "class")
+```
+Now we can evaluate our performance by using the call below that will return the percent of correct predictions: 
+
+```{r,perfEval2}
+get.accuracy(wineTest2, test$quality)
+```
+Still not great accuracy at 53%.  We can see that our first analysis using the randomForest package elicited the best accuracy at 70%
+
+So we will move back to modifying our original model "model" using randomForest, assigning our number of trees to 100:
+```{r,modelagain}
+model3 <- randomForest(taste ~ . - quality, data = train, ntree = 100)
+```
+
+```{r,pred2res}
+pred2 <- predict(model3, newdata = test)
+table(pred2, test$taste)
+```
+Now we can test our accuracy with this model, getting 70.4% accuracy not too shabby 
+```{r}
+(461+243+676)/nrow(test)
+```
+
+```{r}
+CrossTable(pred2, test$quality, prop.chisq = FALSE, prop.t = FALSE, dnn = c('predicted', 'actual'))
+```
+
+
+## Identifying Variable importance:
+We will use the VarImpPlot on our latest model3 to get a look at the variable importance in our best performing model representing the mean decrease in node impurity in our wine model.[2]
+```{r}
+varImpPlot(model3, main = "Variable Importance for RandomForest Model 3")
+```
+Now we can get a look at VarUsed to out which predictor variables are actually used in the random forest getting a count on the time the variable are used in the algorithm
+```{r}
+varUsed(randomForest(taste ~ . - quality, data = train, ntree = 100), by.tree = FALSE, count = TRUE)
+```
+## Conclusion: 
+Our randomForest model provided a decent approach to determining the taste and quality of a wine, we were able to get to a 70% accuracy rate on the Medium quality wine that dominated our dataset. 
+
+## References 
+[1] Advanced Modeling in R: Predicting Wine Quality Using Random Forests https://datascienceplus.com/predicting-wine-quality-using-random-forests/
+[2]Package 'randomForest'Fortran original by Leo Breiman and Adele Cutler, R port by Andy Liaw and Matthew Wiener. https://cran.r-project.org/web/packages/randomForest/randomForest.pdf

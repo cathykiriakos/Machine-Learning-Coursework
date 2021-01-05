@@ -1,0 +1,163 @@
+---
+title: "R Notebook"
+output:
+  word_document: default
+  html_notebook: default
+---
+
+## MSDS 680X40 Machine Learning Week 6 K-means Clustering using UCI ML Database - Wholesale Customers Data Set
+
+This week will we take a deep dive into K-means clustering algorithms, we will use K-means to find the optimal number of clusters using various techniques including the elbow method, and silhouette method. We will plot our clusters out investigating the relationship of variable clusters identifying their centroids, we will gain understanding of our data and if we find any clusters that are difficult to detect, and follow that up with any findings.  Then we will investigate using a HCA or Hierarchical Clustering algorithm to identify the optimal number of clusters, get a look at the dendrogram, and conclude our findings. We will first start by looking at the attribute information from UCI: 
+
+Attribute Information:
+
+1) FRESH: annual spending (m.u.) on fresh products (Continuous);
+2) MILK: annual spending (m.u.) on milk products (Continuous);
+3) GROCERY: annual spending (m.u.)on grocery products (Continuous);
+4) FROZEN: annual spending (m.u.)on frozen products (Continuous)
+5) DETERGENTS_PAPER: annual spending (m.u.) on detergents and paper products (Continuous)
+6) DELICATESSEN: annual spending (m.u.)on and delicatessen products (Continuous);
+7) CHANNEL: customersâ€™ Channel - Horeca (Hotel/Restaurant/CafÃ©) or Retail channel (Nominal)
+8) REGION: customersâ€™ Region â€“ Lisnon, Oporto or Other (Nominal)
+
+Next we will go ahead and load the data set from UCI Machine Learning:
+```{r,load_data, warning=FALSE}
+url <- 'https://archive.ics.uci.edu/ml/machine-learning-databases/00292/Wholesale%20customers%20data.csv'
+wc <- read.table(url, sep = ',', header = TRUE)
+head(wc)
+```
+Next we'll get some of our summary statistics: 
+```{r,sum}
+summary(wc)
+```
+```{r,glimpse}
+library(tidyverse)
+glimpse(wc) 
+```
+Now we will check quickly for any na values
+```{r,nas}
+sum(is.na(wc))
+```
+Looks good.
+
+Now we will use a corr matrix to look at our correlations: 
+```{r,cormatrix}
+library(corrplot)
+cormatrix <- cor(wc)
+corrplot(cormatrix, method = "number")
+```
+All of the attributes have the same scale with the exception of "channel" and "region" so we will strip out those attributes for our clustering [1] algorithm. 
+```{r,rm}
+wc <- wc[-c(1,2)]
+head(wc)
+```
+Now we will start the k-means clustering portion of this exercise.  We will determine the optimal number of clusters using the silhouette method [1]
+```{r,SM}
+library(cluster) 
+library(factoextra)
+
+silhouette_score <- function(k){
+  km <- kmeans(wc, centers = k, nstart=25)
+  ss <- silhouette(km$cluster, dist(wc))
+  mean(ss[, 3])
+}
+k <- 2:10
+avg_sil <- sapply(k, silhouette_score)
+plot(k, type='b', avg_sil, xlab='Number of clusters', ylab='Average Silhouette Scores', frame=FALSE)
+```
+We can see from the output above that out optimal number of clusters is 2.
+
+We can also use the factoextra package to get a visualization on the optimal number of clusters using our silhouette method as shown below[1]:
+```{r,factoextra}
+fviz_nbclust(wc, kmeans, method='silhouette')
+```
+Showing us that again using the optimal number is two on the data set. 
+
+Moving back to our clustering, 
+```{r,clustFinal,error=FALSE}
+km.final <- kmeans(wc, 2)
+```
+So now we will get a view of the total within the sum of squares: 
+```{r,winClus}
+km.final$tot.withinss
+```
+Looking at our cluster size: 
+```{r,kmsz}
+km.final$size
+```
+Below we can get a quick view and look at the cluster they belong to: 
+```{r}
+wc$cluster <- km.final$cluster
+head(wc, 6)
+```
+Now we will get a view of the cluster plots and their cenroids: 
+```{r,view,error=FALSE}
+wcFit <- kmeans(wc,3)
+wcFit
+```
+Looking at the attributes of our model below: 
+```{r,attributes}
+attributes(wcFit)
+```
+Now we can get at the centers 
+```{r,centers,error=FALSE}
+wcFit$centers
+```
+Looking at their size: 
+```{r,size_cl}
+wcFit$size
+```
+Now we can get quick view of our clusters
+```{r}
+wcFit$cluster
+```
+
+Now we can get a view of our cluster plot our two components that explain roughly 70% of the point variability within our model. 
+```{r,clusterplot1, error=FALSE,warning=FALSE}
+clusplot(wc, wcFit$cluster, main='2D representation of the Cluster solution',
+         color=TRUE, shade=TRUE,
+         labels=5, lines=0)
+```
+
+Now we will cluster out fresh and frozen, and look at their output: 
+```{r,clusterFF, error=FALSE}
+set.seed(123456789) ## to fix the random starting clusters
+FF <- kmeans(wc[,c("Fresh","Frozen")], centers=3, nstart=10)
+FF
+```
+Now we can list out cluster assignments for both fresh and frozen: 
+```{r,clusterAssn, error=FALSE}
+o=order(FF$cluster)
+data.frame(wc$Fresh[o],FF$cluster[o])
+data.frame(wc$Frozen[o],FF$cluster[o])
+```
+Now we can get a view of our clustering algorithm using our fresh and frozen attributes on the model, here we can see that the optimal number of clusters in this model using fresh and frozen is 3.
+```{r,FFClusplot}
+clusplot(wc, FF$cluster, main='2D representation of the Cluster solution',
+         color=TRUE, shade=TRUE,
+         labels=5, lines=0)
+```
+
+Now we can move onto our HCA model, and get a look at a dendrogram of the wholesale customer data set using euclidean distance [2]
+```{r,HCA, error=FALSE, warning=FALSE}
+d <- dist(wc, method = "euclidean")
+```
+
+We use the Euclidean distance as an input for the clustering algorithm (Ward’s minimum variance criterion minimizes the total within-cluster variance):
+```{r,EucDis}
+hFit <- hclust(d, method = "ward.D")
+```
+Now we can get a view of our clustering output using the dendrogram; seeing that our optimal number of clusters using this approach is 3.
+```{r,dendrogram}
+plot(hFit)
+rect.hclust(hFit, k=3, border = "red")
+```
+## Conclusion: 
+In our analysis we were able to cluster the UCI Wholesale Customer data identifying the optimal number of clusters using the silhouette method, and followed up with using HCA to identify the optimal number of clusters using euclidean distance, finding that with our data set the optimal number of clusters are two and three respectively. 
+
+
+## Citations
+
+[1]Jayaprakash Nallathambi R Series — K means Clustering (Silhouette)https://medium.com/codesmart/r-series-k-means-clustering-silhouette-794774b46586
+
+[2]Cluster Analysis https://www.statmethods.net/advstats/cluster.html

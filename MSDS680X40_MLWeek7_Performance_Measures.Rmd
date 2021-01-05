@@ -1,0 +1,179 @@
+---
+title: "MSDS680X40_ML_Performance_Measures"
+author: "Cathy Kiriakos"
+date: "June 17, 2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## MSDS 680X40 Performance Measures using UCI Abalone Data Set 
+
+For this lab we will investigate the abalone data set from UCI Machine Learining Repository: https://archive.ics.uci.edu/ml/datasets/Abalone.  The objective is to predict the age in years of abalone shells Rings using physical measurements. I will be using an RPubs  titled Evaluating Performance Measures as a guide in this analysis.
+
+First we will obtain information on the data set from the website, gaining some insight into our variables: 
+
+Attribute Information:
+
+Given is the attribute name, attribute type, the measurement unit and a brief description. The number of Rings is the value to predict: either as a continuous value or as a classification problem.
+
+Name / Data Type / Measurement Unit / Description
+-----------------------------
+Sex / nominal / -- / M, F, and I (infant)
+Length / continuous / mm / Longest shell measurement
+Diameter / continuous / mm / perpendicular to length
+Height / continuous / mm / with meat in shell
+Whole weight / continuous / grams / whole abalone
+Shucked weight / continuous / grams / weight of meat
+Viscera weight / continuous / grams / gut weight (after bleeding)
+Shell weight / continuous / grams / after being dried
+Rings / integer / -- / +1.5 gives the age in years
+
+```{r,Load}
+url <- 'https://archive.ics.uci.edu/ml/machine-learning-databases/abalone/abalone.data'
+abalone <- read.table(url, sep = ',', header = FALSE, stringsAsFactors=FALSE)
+colnames(abalone) <- c("Sex","Length", "Diameter","Height","Whole_Weight","Shucked_Weight","Viscera_weight","Shell_weight","Rings")
+```
+We will do some quick exploratory analysis on the data set: 
+```{r,str_Ab}
+str(abalone)
+```
+```{r,explore}
+library(DataExplorer)
+introduce(abalone)
+```
+Man's search for Missing Values
+```{r,missing}
+plot_missing(abalone)
+```
+Histogram: Data Explorer 
+```{r,Histogram}
+plot_histogram(abalone)
+```
+Density Plot
+```{r,DP}
+plot_density(abalone)
+```
+ 
+```{r,CorPlot}
+plot_correlation(abalone)
+```
+
+We can see that we have a range of 1-29 Rings; so we will break into three categories, 1-7 young, 8-11 as adult, and 12-29 as old.
+```{r,sort}
+abalone$Rings <- as.numeric(abalone$Rings)
+abalone$Rings <- cut(abalone$Rings, br=c(-1,8,11,35), labels = c("young", 'adult', 'old'))
+abalone$Rings <- as.factor(abalone$Rings)
+summary(abalone$Rings)
+```
+Now we will create a KNN classification model and compare using performance metrics.  We will normalize our data.
+```{r,norm}
+z <- abalone
+z<- subset(z, select = -Sex)
+```
+
+```{r,norm2}
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+z[1:7] <- as.data.frame(lapply(z[1:7], normalize))
+summary(z)
+```
+
+Now we have a min and max of 0 and 1 for all of our variables, and we can split out data into testing and training at a 70/30 ratio : 
+```{r,splitdata}
+ind <- sample(2, nrow(z), replace=TRUE, prob=c(0.7, 0.3))
+KNNtrain <- z[ind==1,]
+KNNtest <- z[ind==2,]
+```
+Now we can run the KNN model, with a k = square root of of 2198
+```{r,Knn}
+library(class)
+KNNpred <- knn(train = KNNtrain[1:7], test = KNNtest[1:7], cl = KNNtrain$Rings, k = 54)
+```
+Now we can get a summary of the performance: 
+```{r,knnP}
+library("gmodels")
+CrossTable(x = KNNtest$Rings, y = KNNpred, prop.chisq = FALSE)
+```
+Looking at our accuracy we've got a 66% accuracy rate, not good rough to say we can use measurements to effectively predict age by measurements in abalones. 
+```{r,accuracy }
+(325+429+92)/((89+4+119+38+17+166)+(325+429+92))
+```
+Now we can get a look at the confusion Matrix for a bit more formation on the accuracy of the knn model.  We can see that with 95% confidence we've confirmed our manual calculation of accuracy, our Kappa value is 0.45 giving us a "fair" level of agreement. Our misclassification rate is 1-accuracy = 0.30. 
+```{r,ConfusionMatrixStats, eval=FALSE}
+confusionMatrix(KNNpred, KNNtest$Rings)
+```
+Now we will get a view of this same model using Naive Bayes with the same data: 
+```{r,nb}
+NBtrain  <- KNNtrain
+NBtest <- KNNtest
+```
+
+```{r,libs}
+library(e1071)
+model <- naiveBayes(Rings ~., data = NBtrain)
+model
+```
+Now we can predict using the Naive Bayes Model: 
+```{r,NBPred, eval=FALSE}
+pred <- predict(model, NBtest)
+print(confusionMatrix(pred,NBtest$Rings))
+```
+So we can see that our accuracy is only 57%, and we have a higher misclassificaiton rate of 43%. So far our KNN model is performing better that Naive Bayes for the abalone prediction. 
+
+Now we can move forward with some boostrapping on the model: 
+
+```{r,bootSt}
+library(caret)
+train_control <- trainControl(method = "boot", number = 100)
+trModel <- train(Rings~., data = z, trControl=train_control, method = "nb")
+```
+Now we can review the performance with bootstrapping on the Naive Bayes: 
+```{r,trMod}
+print(trModel)
+```
+Now we will run through the same process on our NB model: 
+```{r,nbBoost}
+trModel2 <- train(Rings~., data = z, trControl=train_control, method="knn")
+```
+
+```{r,printTRmod}
+print(trModel2)
+```
+So we can see that the knn model is more suitable versus the the Naive Bayes, now we will perform 10-fold cross validation to further evaluate the models:
+```{r,TenFold}
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+modelCV <- train(Rings~., data = KNNtrain, method = "knn", preProcess = "scale", trControl = control)
+modelCV
+```
+10-Fold validation tells us that the optimal model for knn will be a k = 9. On our Naive Bayes we can see that the optimal has The final values used for the model were fL = 0, usekernel = TRUE and adjust = 1.  So we will re-run with the optimal parameters. 
+```{r,Mods1}
+KNNpred <- knn(train = KNNtrain[1:7], test = KNNtest[1:7], cl = KNNtrain$Rings, k = 9)
+confusionMatrix(KNNpred, KNNtest$Rings)
+```
+So with updating our K to 9 we were able to get an accuracy rate of 66%. 
+
+Now we will make the adjustments to our Naive Bayes model: 
+```{r,NBUpdate}
+model <- naiveBayes(Rings ~., data = NBtrain, fL = 0, usekernal = TRUE, adjust = 1)
+model
+```
+View Predictions with updated NB model with optimal parameters: 
+```{r,Preds}
+pred <- predict(model, NBtest)
+print(confusionMatrix(pred,NBtest$Rings))
+```
+Summary: This update gets us o a 57% accuracy rate, slightly better but under performing as compared to the KNN.  Our models accuracy is fairly low, and we can determine from this analysis that using machine learning to determine the age of an abalone may not provide any help or improvement on this analysis. At this point I would not suggest moving to a ml model for this analysis to an abalone researcher.  
+
+ 
+Sources: 
+
+[1]Brownlee, Jason.How To Estimate Model Accuracy in R Using The Caret Package https://machinelearningmastery.com/how-to-estimate-model-accuracy-in-r-using-the-caret-package/
+
+[2] Evaluating Performance Measures http://rstudio-pubs-static.s3.amazonaws.com/318406_1035e12214c64c0185738fee4ce8c6a2.html
+

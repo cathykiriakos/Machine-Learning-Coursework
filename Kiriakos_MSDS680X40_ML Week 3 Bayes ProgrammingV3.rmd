@@ -1,0 +1,268 @@
+---
+title: "R Notebook"
+output:
+  word_document: default
+  html_notebook: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Kiriakos MSDS680_X40: Naive Bayes Processing on UCI Machine Learning Spam Data set: 
+The objective of this lab is to classify SMS message as spam or not spam (ham), using the bayes theroem. 
+
+We will first get started by loading the spam dataset from UCI Machine learninging and get an understanding of the data: 
+
+http://archive.ics.uci.edu/ml/datasets/SMS+Spam+Collection
+
+A collection of 425 SMS spam messages was manually extracted from the Grumbletext Web site. This is a UK forum in which cell phone users make public claims about SMS spam messages, most of them without reporting the very spam message received. The identification of the text of spam messages in the claims is a very hard and time-consuming task, and it involved carefully scanning hundreds of web pages.  A subset of 3,375 SMS randomly chosen ham messages of the NUS SMS Corpus (NSC), which is a dataset of about 10,000 legitimate messages collected for research at the Department of Computer Science at the National University of Singapore. The messages largely originate from Singaporeans and mostly from students attending the University
+
+Attribute information: 
+ham What you doing?how are you?
+ham Ok lar... Joking wif u oni...
+ham dun say so early hor... U c already then say...
+ham MY NO. IN LUTON 0125698789 RING ME IF UR AROUND! H*
+ham Siva is in hostel aha:-.
+ham Cos i was out shopping wif darren jus now n i called him 2 ask wat present he wan lor. Then he started guessing who i was wif n he finally guessed darren lor.
+spam FreeMsg: Txt: CALL to No: 86888 & claim your reward of 3 hours talk time to use from your phone now! ubscribe6GBP/ mnth inc 3hrs 16 stop?txtStop
+spam Sunshine Quiz! Win a super Sony DVD recorder if you canname the capital of Australia? Text MQUIZ to 82277. B
+spam URGENT! Your Mobile No 07808726822 was awarded a L2,000 Bonus Caller Prize on 02/09/03! This is our 2nd attempt to contact YOU! Call 0871-872-9758 BOX95QU
+
+Lets get started by loading the libraries that we will be leveraging for this analysis: 
+```{r,libs, eval=FALSE}
+library(klaR)
+library(MASS)
+library(caret)
+library(tm)
+library(dplyr)
+library(magrittr)
+library(stopwords)
+library(tm)
+library(pander)
+```
+
+Now we will load the dataset: 
+```{r, loadDataset}
+if (!file.exists("smsspamcollection.zip")) {
+download.file(url="http://archive.ics.uci.edu/ml/machine-learning-databases/00228/smsspamcollection.zip",
+              destfile="smsspamcollection.zip", method="curl")}
+
+sms_raw <- read.table(unz("smsspamcollection.zip","SMSSpamCollection"),
+                      header=FALSE, sep="\t", quote="", stringsAsFactors=FALSE)
+
+colnames(sms_raw) <- c("type", "text")
+
+str(sms_raw)
+```
+The type variable is currently a character vector. Since this is a categorical variable,it would be better to convert it to a factor, as shown in the following code:
+```{r,asFactor}
+sms_raw$type <- factor(sms_raw$type)
+str(sms_raw)
+```
+Now we can see see that the type has been converted to factor appropriately 
+```{r,tbl1}
+table(sms_raw$type)
+```
+## 1.1) Transformation: 
+For our data transformation we will clean up the data frame.   We will first transform the sms file into corpus a, convert all to lower case, remove any numbers, remove stopwords, remove punctuation, and strip the whitespace below:
+```{r,transform}
+sms_corpus <- Corpus(VectorSource(sms_raw$text))
+print(sms_corpus)
+```
+If we print() the corpus we just created, we will see that it contains documents for each of the 5,574 SMS messages in the training data.
+
+We can inspect the corpus so we can look at the contents: 
+```{r,inspect}
+inspect(sms_corpus[1:3])
+```
+Now we will clean up the data, so that it is easy to analyze, remvoing caps, punctuation, whitespace and stopwords
+```{r,clean1}
+corpus_clean <- tm_map(sms_corpus, tolower)
+corpus_clean <- tm_map(corpus_clean, removeNumbers)
+corpus_clean <- tm_map(corpus_clean, removeWords, stopwords())
+corpus_clean <- tm_map(corpus_clean, removePunctuation)
+corpus_clean <- tm_map(corpus_clean, stripWhitespace)
+```
+## 1.2) Document-Term-Matrix creation 
+The DocumentTermMatrix() function will take a corpus and create a data structure called a sparse matrix, in which the rows of the matrix indicate documents our SMS messages and the columns indicate terms/words. 
+```{r,dtm}
+sms_dtm <- DocumentTermMatrix(corpus_clean)
+```
+Now we can split our data frames out into testing and training sets  
+```{r,test_train}
+train_index <- createDataPartition(sms_raw$type, p=0.75, list=FALSE)
+sms_raw_train <- sms_raw[train_index,]
+sms_raw_test <- sms_raw[-train_index,]
+sms_corpus_train <- sms_corpus_clean[train_index]
+sms_corpus_test <- sms_corpus_clean[-train_index]
+sms_dtm_train <- sms_dtm[train_index,]
+sms_dtm_test <- sms_dtm[-train_index,]
+```
+Lets confirm that that worked as it should:
+```{r,conf}
+prop.table(table(sms_raw_train$type))
+```
+
+```{r,conftwo}
+prop.table(table(sms_raw_test$type))
+```
+## 1.3 Text Analytics & 1.5 Word Cloud Creation: 
+Lets get a visualization on our text using word clouds, allowing us to vizualize the frequency that word appear in text: 
+```{r}
+wordcloud(sms_corpus_train, min.freq = 40, random.order = FALSE)
+```
+Now we can compare spam versus ham, we will start by subsetting the data. 
+```{r,ssham}
+spam <- subset(sms_raw_train, type == "spam")
+ham <- subset(sms_raw_train, type == "ham")
+```
+
+```{r,wdmpSpam, error=FALSE}
+wordcloud(spam$text, max.words = 40, random.order = FALSE)
+```
+
+```{r,wdmpHam, error=FALSE}
+ wordcloud(ham$text, max.words = 40)
+```
+## 1.4 Model Accuracy: 
+We will assess the accuracy of the model using frequency tables: 
+
+Below is creating a utility function for % freq tables 
+```{r,freqTbl}
+# a utility function for % freq tables
+frqtab <- function(x, caption) {
+    round(100*prop.table(table(x)), 1)
+}
+# utility function to summarize model comparison results
+sumpred <- function(cm) {
+    summ <- list(TN=cm$table[1,1],  # true negatives
+                 TP=cm$table[2,2],  # true positives
+                 FN=cm$table[1,2],  # false negatives
+                 FP=cm$table[2,1],  # false positives
+                 acc=cm$overall["Accuracy"],  # accuracy
+                 sens=cm$byClass["Sensitivity"],  # sensitivity
+                 spec=cm$byClass["Specificity"])  # specificity
+    lapply(summ, FUN=round, 2)
+}
+```
+
+
+```{r,Freq, error=FALSE}
+ft_orig <- frqtab(sms_raw$type)
+ft_train <- frqtab(sms_raw_train$type)
+ft_test <- frqtab(sms_raw_test$type)
+ft_df <- as.data.frame(cbind(ft_orig, ft_train, ft_test))
+colnames(ft_df) <- c("Original", "Training set", "Test set")
+pander(ft_df, style="rmarkdown",
+       caption=paste0("Comparison of SMS type frequencies among datasets"))
+
+```
+Now we will create indicator features for frequent terms, as described in Lanz's tutorial. 
+```{r,freq}
+findFreqTerms(sms_dtm_train, 5)
+```
+We will save in the dictionary for later: 
+```{r,dict}
+sms_dict <- findFreqTerms(sms_dtm_train, 5)
+```
+Now we will specify the words that will be stored into the dictionary: 
+```{r,fillDict}
+sms_train <- DocumentTermMatrix(sms_corpus_train,
+ list(dictionary = sms_dict))
+
+sms_test <- DocumentTermMatrix(sms_corpus_test,
+ list(dictionary = sms_dict))
+```
+The naive Bayes classifier is typically trained on data with categorical features, cells in the sparse matrix indicate a count of the times a word appears in a message we need to change this to a factor variable that simply indicates yes or no depending on whether the word appears at all. The following code defines a convert_counts() function to convert counts to factors:
+```{r,convCt}
+convert_counts <- function(x) {
+ x <- ifelse(x > 0, 1, 0)
+ x <- factor(x, levels = c(0, 1), labels = c("No", "Yes"))
+ return(x)
+ }
+```
+Now we will apply this to the testing and training sets: 
+```{r,applyFn}
+sms_train <- apply(sms_train, MARGIN = 2, convert_counts)
+sms_test <- apply(sms_test, MARGIN = 2, convert_counts)
+```
+Now we will train our Naive Bayes model, using the e1071 package: 
+```{r,lib10}
+library(e1071)
+```
+We will build the model on the sms_training matrix: 
+
+But there is a problem with the model as I can not coerse the class to data frame, currently we've got two classes assigned which is part of the problem as shown by calling class below. 
+```{r,problem}
+class(sms_test)
+```
+According to stack overflow this error in creating the Bayes classifier is driven by the two class types of the sms_test data
+https://stackoverflow.com/questions/27213019/error-in-as-data-frame-defaultdtm-cannot-coerce-class-cdocumenttermmatrix
+
+So hoping to coerse the data into a single class in order for this but could not getting the following:  Error in as.data.frame.default(as.matrix(sms_train)) : cannot coerce class 'c("DocumentTermMatrix", "simple_triplet_matrix")' to a data.frame
+```{r,troubleshoot}
+sms_train <- as.data.frame(as.matrix(sms_train))
+```
+The classfiier call continues to fail as a restult of the dual class assignment on out sms_test data; noted here: Error in as.data.frame.default(x) : cannot coerce class 'c("DocumentTermMatrix", "simple_triplet_matrix")' to a data.frame
+```{r,str}
+str(sms_test)
+```
+Dput() is another option to coerse the class
+```{r,dput, eval=FALSE}
+sms_test2<- dput(sms_train)
+```
+The sms_classifier variable will be created to contain a naiveBayes classifier object that can be used to make predictions
+```{r,mod,error=FALSE}
+sms_classifier <- naiveBayes(sms_train, sms_raw_train$type)
+```
+Now we  will evaluate the model's performance: 
+```{r,pred}
+sms_test_pred <- predict(sms_classifier, sms_test)
+```
+To compare the predicted models to actual we will use the cross tables function in gmodels: 
+```{r,comp}
+library(gmodels)
+CrossTable(sms_test_pred, sms_raw_test$type,
+ prop.chisq = FALSE, prop.t = FALSE,
+ dnn = c('predicted', 'actual'))
+```
+Looking at the accuracy of our model we can see that 101 spam was incorrectly classified as ham so 8% inaccuracy, and 182 misclassified ham at a 14% error on classification there. But fairly accurate showing how we can quickly assign a bayes model and get a decent level of accuracy without too much work. 
+
+## 1.6) Print the 5 most frequent words (in order from highest to lowest) for each class (both ham class and spam class)
+Using qdap we can get a view of the most frequent terms in the spam set: 
+```{r,freqspam}
+library(qdap)
+freq_terms(spam$text,10)
+
+```
+Now we can get a view of the most frequent terms in the ham set: 
+```{r,freqHam}
+freq_terms(ham$text,10)
+```
+In the corpus clean set below is our top 10
+```{r}
+freq_terms(sms_corpus_clean_test,10)
+```
+## 1.7) Conclusion of findings: 
+In this lab we developed an understanding of how to apply the Naive Bayese classification model to text from the UCI Spam data.  We found that the Naive Bayes classification algorithm provides decent results without too much tweaking; with farily low rates of false positives and negatives in our model.  The beauty of this approach is that Naive Bayes will construct a table of probablilities that estimate the likelyhood that new examples woudl fall into our spam and ham classification.  
+
+## 1.8) Model improvement: 
+We can introduce a laplase estimator to our training model allowing for words that appeared in zero spam or zero ham
+messages to have impact in the classification.  We will set our laplase to 2 
+```{r,laplase, warning=FALSE}
+sms_classifier2 <- naiveBayes(sms_train, sms_raw_train$type, laplace = 2)
+```
+Now to make our prediction: 
+```{r, predLap}
+sms_test_pred2 <- predict(sms_classifier2, sms_test)
+```
+Now lets get a view of our updated cross tab: 
+```{r,crosstab2}
+CrossTable(sms_test_pred2, sms_raw_test$type,
+ prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+ dnn = c('predicted', 'actual'))
+```
+A little improvement on poor spam classification. 
+
+## References
+Lantz, Brett. Machine Learning with R. 2nd ed. Birmingham: Packt Publishing Ltd, 2015. Print. , 2013. Print.

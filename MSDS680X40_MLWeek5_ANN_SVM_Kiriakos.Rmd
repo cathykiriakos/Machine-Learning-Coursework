@@ -1,0 +1,289 @@
+---
+title: "MSDS+90X40_MLWeek5_ANN_SVM"
+author: "Cathy Kiriakos"
+date: "June 6, 2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Suport Vector Machine & Artificial Neural Network Development using UCI ML mr Data Set
+This lab is developed to create both a SVM algorithm and the ANN using data from the UCI Machine Learning Repository. We will build a classifier SVM and experiment with different kernels, then determining which kernel is appropriate for the data set by viewing the accuracy of the model.  Then we will build a classifier using neural networks, experimenting with different parameters and network architecture, and determine the best architecture for this model. Finally we will compare the soundness of both models and pick a winner. First things first, as always it is important to get an understanding of our data, below are the details from the UCI repository: 
+
+This data set includes descriptions of hypothetical samples corresponding to 23 species of gilled mrs in the Agaricus and Lepiota Family (pp. 500-525). Each species is identified as definitely edible, definitely poisonous, or of unknown edibility and not recommended. This latter class was combined with the poisonous one. The Guide clearly states that there is no simple rule for determining the edibility of a mr; no rule like ``leaflets three, let it be'' for Poisonous Oak and Ivy.
+
+Data Set Characteristics:  Multivariate
+
+Number of Instances:8124
+
+Area:Life
+
+Attribute Characteristics:Categorical
+
+Number of Attributes:22
+
+Date Donated1987-04-27
+
+Associated Tasks:Classification
+
+Missing Values? Yes
+
+
+Attribute Information:
+
+1. cap-shape: bell=b,conical=c,convex=x,flat=f, knobbed=k,sunken=s
+2. cap-surface: fibrous=f,grooves=g,scaly=y,smooth=s
+3. cap-color: brown=n,buff=b,cinnamon=c,gray=g,green=r, pink=p,purple=u,red=e,white=w,yellow=y
+4. bruises?: bruises=t,no=f
+5. odor: almond=a,anise=l,creosote=c,fishy=y,foul=f, musty=m,none=n,pungent=p,spicy=s
+6. gill-attachment: attached=a,descending=d,free=f,notched=n
+7. gill-spacing: close=c,crowded=w,distant=d
+8. gill-size: broad=b,narrow=n
+9. gill-color: black=k,brown=n,buff=b,chocolate=h,gray=g, green=r,orange=o,pink=p,purple=u,red=e, white=w,yellow=y
+10. stalk-shape: enlarging=e,tapering=t
+11. stalk-root: bulbous=b,club=c,cup=u,equal=e, rhizomorphs=z,rooted=r,missing=?
+12. stalk-surface-above-ring: fibrous=f,scaly=y,silky=k,smooth=s
+13. stalk-surface-below-ring: fibrous=f,scaly=y,silky=k,smooth=s
+14. stalk-color-above-ring: brown=n,buff=b,cinnamon=c,gray=g,orange=o, pink=p,red=e,white=w,yellow=y
+15. stalk-color-below-ring: brown=n,buff=b,cinnamon=c,gray=g,orange=o, pink=p,red=e,white=w,yellow=y
+16. veil-type: partial=p,universal=u
+17. veil-color: brown=n,orange=o,white=w,yellow=y
+18. ring-number: none=n,one=o,two=t
+19. ring-type: cobwebby=c,evanescent=e,flaring=f,large=l, none=n,pendant=p,sheathing=s,zone=z
+20. spore-print-color: black=k,brown=n,buff=b,chocolate=h,green=r, orange=o,purple=u,white=w,yellow=y
+21. population: abundant=a,clustered=c,numerous=n, scattered=s,several=v,solitary=y
+22. habitat: grasses=g,leaves=l,meadows=m,paths=p, urban=u,waste=w,woods=d
+
+We will get started by loading in our data: 
+```{r,data}
+url <- 'http://archive.ics.uci.edu/ml/machine-learning-databases/mushroom/agaricus-lepiota.data'
+mr <- read.table(url, sep = ',', header = FALSE)
+colnames(mr) <- c("edibility","cap_shape", "cap_surface","cap_color","bruises","odor","gill_attachment","gill_spacing","gill_size","gill_color","stalk_shape","stalk_root","stalk_surface_above_ring","stalk_surface_below_ring", "stalk_color_above_ring","stalk_color_below_ring","veil_type","veil_color","ring_number","ring_type","spore_print_color","population","habitat")
+head(mr)
+```
+
+```{r,glimpse}
+library(tidyverse)
+library(purrr)
+glimpse(mr)
+```
+We have 8123 mrs in our dataset, and each observation contains 22 variables.  We will move forward and tidy the data and define the levels of the categorical variables
+```{r,tidyDat}
+mr <- mr %>% map_df(function(.x) as.factor(.x))
+```
+Now we will define categories for each variable: 
+```{r,define}
+levels(mr$edibility) <- c("edible", "poisonous")
+levels(mr$cap_shape) <- c("bell", "conical", "flat", "knobbed", "sunken", "convex")
+levels(mr$cap_color ) <- c("buff", "cinnamon", "red", "gray", "brown", "pink", 
+                                "green", "purple", "white", "yellow")
+levels(mr$cap_surface) <- c("fibrous", "grooves", "scaly", "smooth")
+levels(mr$bruises) <- c("no", "yes")
+levels(mr$odor) <- c("almond", "creosote", "foul", "anise", "musty", "none", "pungent", "spicy", "fishy")
+levels(mr$gill_attachment) <- c("attached", "free")
+levels(mr$gill_spacing) <- c("close", "crowded")
+levels(mr$gill_size) <- c("broad", "narrow")
+levels(mr$gill_color) <- c("buff", "red", "gray", "chocolate", "black", "brown", "orange", 
+                                 "pink", "green", "purple", "white", "yellow")
+levels(mr$stalk_shape) <- c("enlarging", "tapering")
+levels(mr$stalk_root) <- c("missing", "bulbous", "club", "equal", "rooted")
+levels(mr$stalk_surface_above_ring) <- c("fibrous", "silky", "smooth", "scaly")
+levels(mr$stalk_surface_below_ring) <- c("fibrous", "silky", "smooth", "scaly")
+levels(mr$stalk_color_above_ring) <- c("buff", "cinnamon", "red", "gray", "brown", "pink", 
+                                "green", "purple", "white", "yellow")
+levels(mr$stalk_color_below_ring) <- c("buff", "cinnamon", "red", "gray", "brown", "pink", 
+                                "green", "purple", "white", "yellow")
+levels(mr$veil_type) <- "partial"
+levels(mr$veil_color) <- c("brown", "orange", "white", "yellow")
+levels(mr$ring_number) <- c("none", "one", "two")
+levels(mr$ring_type) <- c("evanescent", "flaring", "large", "none", "pendant")
+levels(mr$spore_print_color) <- c("buff", "chocolate", "black", "brown", "orange", 
+                                        "green", "purple", "white", "yellow")
+levels(mr$population) <- c("abundant", "clustered", "numerous", "scattered", "several", "solitary")
+levels(mr$habitat) <- c("wood", "grasses", "leaves", "meadows", "paths", "urban", "waste")
+```
+Now we can view our modified data frame for a gut check: 
+```{r,glimpse_again}
+glimpse(mr)
+```
+
+```{r,summ}
+str(mr)
+```
+Now that we have a better view on the data, we can continue to work through the clean up process.  Below we'll get our summary which will help determine the additional clean up needed.
+```{r,sum}
+summary(mr)
+```
+We can see that the veil type is all the same, so we can get rid of that variable as it will not add any value to the algorithm. 
+```{r,remo}
+mr<-mr %>% select(-veil_type)
+```
+Now we can get a look at the missing values: 
+```{r,missing}
+map_dbl(mr, function(.x) {sum(is.na(.x))})
+```
+OK we can see that we're in good shape, and can move forward with our analysis, and get a visualization on our data:
+```{r,vis1}
+library(ggplot2)
+ggplot(mr, aes(x = cap_surface, y = cap_color, col = edibility)) + 
+  geom_jitter(alpha = 0.5) + 
+  scale_color_manual(breaks = c("edible", "poisonous"), 
+                     values = c("blue", "black"))
+
+```
+From the output above we can see that fiberous is a good surface for edible mushrooms, while smooth mushrooms tend to fall into the poisonous category unless they're purple or green.
+```{r,view2}
+ggplot(mr, aes(x = cap_shape, y = cap_color, col = edibility)) + 
+  geom_jitter(alpha = 0.5) + 
+  scale_color_manual(breaks = c("edible", "poisonous"), 
+                     values = c("blue", "black"))
+```
+In the above graph we can see that in terms of cap color and shape, edible tends to fall into yellow, brown, and grey with a bell cap.  Knobbed white, grey and buff is also a good category for edible. Sunken caps are good when they're brown or grey, and convex cap shape in my opinion should be avoided.
+```{r,view3}
+ggplot(mr, aes(x = gill_color, y = cap_color, col = edibility)) + 
+  geom_jitter(alpha = 0.5) + 
+  scale_color_manual(breaks = c("edible", "poisonous"), 
+                     values = c("blue", "black"))
+```
+A bunch of information up top, our blue concentrations will be the combination of cap and gill color that will be edible.
+```{r,view4}
+ggplot(mr, aes(x = edibility, y = odor, col = edibility)) + 
+  geom_jitter(alpha = 0.5) + 
+  scale_color_manual(breaks = c("edible", "poisonous"), 
+                     values = c("blue", "black"))
+```
+The view above is not surprising, strong smelling mushrooms tend to be poisonous.
+```{r,view5}
+ggplot(mr, aes(x = edibility, y = spore_print_color, col = edibility)) + 
+  geom_jitter(alpha = 0.5) + 
+  scale_color_manual(breaks = c("edible", "poisonous"), 
+                     values = c("blue", "black"))
+```
+Lastly from being a mushroom picker myself, I know that spore prints are very important in identifying edible mushrooms, the above tells us that chocolate spore prints are no good - and white is a toss up. 
+
+## Model Preparation: 
+Now we will spit our data into testing and training:
+```{r,splitTesTra, error=FALSE}
+set.seed(1810)
+mrsample <- caret::createDataPartition(y = mr$edibility, times = 1, p = 0.8, list = FALSE)
+train_mr <- mr[mrsample, ]
+test_mr <- mr[-mrsample, ]
+```
+Now we can check the quality of the splits in regards to the dependent variable
+```{r,splits}
+round(prop.table(table(mr$edibility)), 2)
+```
+```{r,splitsTr1}
+round(prop.table(table(train_mr$edibility)), 2)
+```
+```{r,splitTest}
+round(prop.table(table(test_mr$edibility)), 2)
+```
+Our splits look good, so we can move onto our SVM Model using the e1071 package
+```{r,svm}
+library(e1071)
+model_svm <- svm(edibility ~. , data=train_mr, cost = 1000, gamma = 0.01)
+```
+Now we can check the prediction: 
+```{r,pred_ck}
+test_svm <- predict(model_svm, newdata = test_mr)
+table(test_svm, test_mr$edibility)
+```
+We get a perfect prediction on our SVM Model. 
+
+## ANN Algorithm 
+Now we will re pull the raw data convert the factors into dummy variables and create training and testing sets for our ANN.  We will remove veil type and stalk root due to 
+```{r,annTrans1}
+mr2 <- read.table(url, sep = ',', header = FALSE)
+colnames(mr2) <- c("edibility","cap_shape", "cap_surface","cap_color","bruises","odor","gill_attachment","gill_spacing","gill_size","gill_color","stalk_shape","stalk_root","stalk_surface_above_ring","stalk_surface_below_ring", "stalk_color_above_ring","stalk_color_below_ring","veil_type","veil_color","ring_number","ring_type","spore_print_color","population","habitat")
+head(mr2)
+```
+```{r,remov}
+mr2<-mr2 %>% select(-veil_type)
+mr2<-mr2 %>% select(-stalk_root)
+```
+Now we can get a look at the missing values: 
+```{r,missing2}
+map_dbl(mr2, function(.x) {sum(is.na(.x))})
+```
+
+```{r,strmr2}
+str(mr2)
+```
+```{r,summr2}
+summary(mr2)
+```
+We'll create our data partition below: 
+```{r,parti2, include=FALSE}
+library(caret)
+partition <- createDataPartition(mr2$edibility, p = .7, list = FALSE)
+```
+Now to create our dummy variables: 
+```{r,dummy}
+dummy <- subset(mr2, select = -edibility)
+mrDummy <- dummyVars(~., data = dummy, sep = ".")
+mrDummy <- data.frame(predict(mrDummy, dummy))
+ncol(mrDummy)
+```
+```{r,dumcol}
+mrDummy$edibility <- mr2$edibility
+ncol(mrDummy)
+```
+
+```{r,tstTr2}
+train <- mrDummy[partition,]
+test <- mrDummy[-partition,]
+testLabels <- subset(test, select = edibility)
+testset <- subset(test, select = -edibility)
+```
+Now we will load the nnet library and get started with our ANN model: 
+```{r,ann1}
+library(nnet)
+```
+I was getting an error on my ann call, stating Error in nnet.default(x, y, w, ...) : NA/NaN/Inf in foreign function call (arg 2); assuming that I had a variable with a character in the training set so this is to view the training data to ensure it doesn't have characters, from the output I can see that it is all numeric.
+```{r,trnstr}
+str(train)
+```
+```{r, trainSum}
+summary(train)
+```
+Converting the training set to factor
+```{r,train1}
+train1 <- train %>% map_df(function(.x) as.factor(.x))
+```
+Our first run of our neural network is shown below: 
+```{r,ann2}
+net <- nnet(edibility ~ ., data = train1, size = 2, rang = 0.1, maxit = 200, na.action = na.omit)
+```
+Below we get a summary of our ANN, showing that it was a 2-1 with 277 weights
+```{r,netSum}
+summary(net)
+```
+Turning our test set into factor to run the model
+```{r,test1}
+testset1 <- testset %>% map_df(function(.x) as.factor(.x))
+```
+Now we can get an understanding of the accuracy in our ANN test set: 
+```{r,mrPred}
+mrPred <- predict(net, testset1, type = "class")
+```
+Looking at our table below we can see that its not perfect as we have 30 classified as ed
+```{r,PredTblNN}
+nnTbl <- table(test$edibility, mrPred)
+nnTbl
+```
+Now we can get a view of our confusion matrix on the ANN, providing us with a bit more detail again confirming that our model is not perfect out of the box, with  ~99% accuracy; so there's some room for improvement as compared to the SVM.
+```{r,confMx}
+confusionMatrix(nnTbl)
+```
+Now for a visualization on the ANN
+```{r,annVis}
+library(gamlss.add)
+plot(net, .3)
+```
+## Conclusion 
+Out of the box the SVM modeling approach provides 100% accuracy, whereas the Neural Network could use some more refining.  I see that there is a great deal of improvement that could be added upon our base neural network model and it has the potential to outshine SVM as I encountered in some of our readings this week. 
